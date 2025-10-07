@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { EstadoTurno, Turno } from './turno.entity';
@@ -19,27 +19,45 @@ export class TurnoService {
     private readonly barberoRepository: Repository<Barbero>,
     @InjectRepository(Servicio)
     private readonly servicioRepository: Repository<Servicio>,
-  ) {}
+  ) { }
 
   async create(dto: CreateTurnoDto): Promise<Turno> {
-  const cliente = await this.clienteRepository.findOneBy({ id_cliente: dto.clienteId });
-  const barbero = await this.barberoRepository.findOneBy({ id_barbero: dto.barberoId });
-  const servicio = await this.servicioRepository.findOneBy({ id_servicio: dto.servicioId });
+    const { clienteId, barberoId, servicioId, fecha_hora } = dto;
 
-  if (!cliente) throw new NotFoundException(`Cliente con id ${dto.clienteId} no encontrado`);
-  if (!barbero) throw new NotFoundException(`Barbero con id ${dto.barberoId} no encontrado`);
-  if (!servicio) throw new NotFoundException(`Servicio con id ${dto.servicioId} no encontrado`);
+    // 🕒 Buscar si ya hay un turno en esa fecha/hora para el mismo barbero
+    const turnoExistente = await this.turnoRepository.findOne({
+      where: { barbero: { id_barbero: barberoId }, fecha_hora: new Date(fecha_hora) },
+    });
 
-  const turno = this.turnoRepository.create({
-    cliente,
-    barbero,
-    servicio,
-    fecha_hora: new Date(dto.fecha_hora),
-    estado: dto.estado ?? EstadoTurno.PENDIENTE, // ⚡
-  });
+    if (turnoExistente) {
+      throw new ConflictException({
+        message: 'El barbero ya tiene un turno asignado en ese horario',
+        turnoId: turnoExistente.id_turno,
+      });
+    }
 
-  return this.turnoRepository.save(turno);
-}
+    const cliente = await this.clienteRepository.findOneBy({ id_cliente: dto.clienteId });
+    const barbero = await this.barberoRepository.findOneBy({ id_barbero: dto.barberoId });
+    const servicio = await this.servicioRepository.findOneBy({ id_servicio: dto.servicioId });
+
+    if (!cliente) throw new NotFoundException(`Cliente con id ${dto.clienteId} no encontrado`);
+    if (!barbero) throw new NotFoundException(`Barbero con id ${dto.barberoId} no encontrado`);
+    if (!servicio) throw new NotFoundException(`Servicio con id ${dto.servicioId} no encontrado`);
+
+    // ⏱ Calcular hora de fin
+    const fechaInicio = new Date(fecha_hora);
+    const fechaFin = new Date(fechaInicio.getTime() + servicio.duracion_minutos * 60000);
+
+    const turno = this.turnoRepository.create({
+      cliente,
+      barbero,
+      servicio,
+      fecha_hora: new Date(dto.fecha_hora),
+      estado: dto.estado ?? EstadoTurno.PENDIENTE, // ⚡
+    });
+
+    return this.turnoRepository.save(turno);
+  }
 
   async findAll(): Promise<Turno[]> {
     return this.turnoRepository.find();
@@ -83,4 +101,31 @@ export class TurnoService {
     if (result.affected === 0)
       throw new NotFoundException(`Turno con id ${id} no encontrado`);
   }
+
+  //encontrar barbero por turno
+  async findByBarbero(barberoId: number): Promise<Turno[]> {
+    return this.turnoRepository.find({
+      where: { barbero: { id_barbero: barberoId } },
+      relations: ['cliente', 'servicio', 'barbero'],
+    });
+  }
+
+  //listar clientes por turnos
+  async findByCliente(clienteId: number): Promise<Turno[]> {
+    return this.turnoRepository.find({
+      where: { cliente: { id_cliente: clienteId } },
+      relations: ['cliente', 'servicio', 'barbero'],
+    });
+  }
+
+  // listar turnos por estado
+  async findByEstado(estado: EstadoTurno): Promise<Turno[]> {
+    return this.turnoRepository.find({
+      where: { estado },
+      relations: ['cliente', 'servicio', 'barbero'],
+    });
+  }
+
 }
+
+
