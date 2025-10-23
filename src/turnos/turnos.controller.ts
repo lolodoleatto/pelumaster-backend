@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
 import { TurnoService } from './turnos.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
 import { UpdateTurnoDto } from './dto/update-turno.dto';
@@ -34,11 +34,21 @@ export class TurnoController {
   async findByCliente(@Param('id') id: string) {
     return this.turnoService.findByCliente(+id);
   }
-  
+
   //listar turnos por estado
   @Get('estado/:estado')
   async findByEstado(@Param('estado') estado: EstadoTurno) {
     return this.turnoService.findByEstado(estado);
+  }
+
+  @Get('fecha/:fecha')
+  findByFecha(@Param('fecha') fecha: string) {
+    return this.turnoService.findByFecha(fecha);
+  }
+
+  @Get('semana/:fecha')
+  findBySemana(@Param('fecha') fecha: string) {
+    return this.turnoService.findBySemana(fecha);
   }
 
   @Patch(':id')
@@ -50,5 +60,8 @@ export class TurnoController {
   remove(@Param('id') id: string) {
     return this.turnoService.remove(+id);
   }
+
+  
 }
+
 
