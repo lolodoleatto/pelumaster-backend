@@ -5,8 +5,9 @@ import { Servicio } from '../servicios/servicio.entity';
 
 export enum EstadoTurno {
   PENDIENTE = 'pendiente',
-  CONFIRMADO = 'confirmado',
+  REALIZADO = 'realizado',
   CANCELADO = 'cancelado',
+  EN_PROCESO = 'en proceso',
 }
 
 @Entity('turnos')

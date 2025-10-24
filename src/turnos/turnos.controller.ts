@@ -61,7 +61,20 @@ export class TurnoController {
     return this.turnoService.remove(+id);
   }
 
-  
+  // 🟢 Nuevo Endpoint: Cancelar Turno
+  @Patch(':id/cancelar')
+  cancelarTurno(@Param('id') id: string) {
+    // Solo se necesita el ID para cambiar el estado a 'CANCELADO'
+    return this.turnoService.updateEstado(+id, ESTADOS_TURNO.CANCELADO);
+  }
+
+  // 🟢 Nuevo Endpoint: Reprogramar Turno
+  @Patch(':id/reprogramar')
+  reprogramarTurno(@Param('id') id: string, @Body() dto: UpdateTurnoDto) {
+    // Necesita el ID y la nueva fecha_hora en el DTO
+    return this.turnoService.reprogramar(+id, dto.fecha_hora);
+  }
+
 }
 
 

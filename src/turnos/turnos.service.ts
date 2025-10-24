@@ -38,13 +38,51 @@ export class TurnoService {
     return fechaFin;
   }
 
+  
+// 🟢 NUEVA FUNCIÓN: Determina el estado dinámico basado en la hora actual
+private getEstadoDinamico(turno: Turno): EstadoTurno {
+  // Ignoramos la lógica de tiempo si ya fue CANCELADO o CONFIRMADO (si los usas manualmente)
+  if (turno.estado === EstadoTurno.CANCELADO || turno.estado === EstadoTurno.REALIZADO) {
+      return turno.estado;
+  }
+
+  const ahora = new Date();
+  const fechaInicio = new Date(turno.fecha_hora);
+  
+  // Usamos el servicio cargado para obtener la duración
+  const fechaFin = this.calcularFechaFin(
+    turno.fecha_hora.toString(), 
+    turno.servicio.duracion_minutos // Asumimos que el servicio ya está cargado
+  );
+
+  // 1. Está COMPLETADO: Si la hora actual es posterior a la hora de FIN del turno.
+  if (ahora > fechaFin) {
+    return EstadoTurno.REALIZADO;
+  }
+  
+  // 2. Está EN PROCESO: Si la hora actual está entre la hora de INICIO y la hora de FIN.
+  if (ahora >= fechaInicio && ahora < fechaFin) {
+    return EstadoTurno.EN_PROCESO;
+  }
+  
+  // 3. PENDIENTE: Si la hora actual es anterior a la hora de INICIO.
+  return EstadoTurno.PENDIENTE;
+}
+
+
 
   async create(dto: CreateTurnoDto) {
-    const { barberoId, servicioId, fecha_hora } = dto;
+    const { barberoId, servicioId, clienteId, fecha_hora } = dto;
 
+    // 1. 🔍 BUSCAR Y VALIDAR CLIENTE
+    const cliente = await this.clienteRepository.findOne({ where: { id_cliente: clienteId } });
+    if (!cliente) throw new NotFoundException('Cliente no encontrado');
+
+    // 2. 🔍 BUSCAR Y VALIDAR BARBERO
     const barbero = await this.barberoRepository.findOne({ where: { id_barbero: barberoId } });
     if (!barbero) throw new NotFoundException('Barbero no encontrado');
 
+    // 3. 🔍 BUSCAR Y VALIDAR SERVICIO
     const servicio = await this.servicioRepository.findOne({ where: { id_servicio: servicioId } });
     if (!servicio) throw new NotFoundException('Servicio no encontrado');
 
@@ -87,14 +125,41 @@ export class TurnoService {
       ...dto,
       barbero,
       servicio,
+      cliente,
     });
 
     return this.turnoRepository.save(nuevoTurno);
   }
 
 
-  async findAll(): Promise<Turno[]> {
-    return this.turnoRepository.find();
+ async findAll(): Promise<Turno[]> {
+  // 1. Obtener todos los turnos con sus relaciones (¡esto ya lo corregimos y funciona bien!)
+  const turnosDB = await this.turnoRepository.find({
+    relations: [
+      'cliente',
+      'barbero',
+      'servicio', // Necesitamos el servicio para obtener la duración
+    ],
+    order: { fecha_hora: 'ASC' },
+  });
+
+  // 2. Mapear los turnos para aplicar el estado dinámico
+  const turnosConEstadoDinamico = turnosDB.map(turno => {
+    // ⚠️ Importante: Creamos una copia del objeto para no modificar la entidad original de TypeORM
+    // Esto es solo para la respuesta HTTP.
+    const turnoCopia = { ...turno }; 
+    
+    // Si la entidad Servicio está cargada, calculamos el nuevo estado
+    if (turno.servicio) {
+        // 🟢 Asignamos el estado calculado dinámicamente
+        // Esto sobrescribe el estado almacenado en la DB, pero solo en la respuesta HTTP
+        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno); 
+    }
+    
+    return turnoCopia;
+  });
+
+  return turnosConEstadoDinamico as Turno[];
   }
 
   async findOne(id: number): Promise<Turno> {
