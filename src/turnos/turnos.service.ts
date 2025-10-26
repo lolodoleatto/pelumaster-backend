@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Between } from 'typeorm';
+// 🟢 AÑADE 'In' a esta línea
+import { Repository, Between, In } from 'typeorm';
 import moment from 'moment';
 import { EstadoTurno, Turno } from './turno.entity';
 import { CreateTurnoDto } from './dto/create-turno.dto';
@@ -38,66 +39,93 @@ export class TurnoService {
     return fechaFin;
   }
 
-  
-// 🟢 NUEVA FUNCIÓN: Determina el estado dinámico basado en la hora actual
-private getEstadoDinamico(turno: Turno): EstadoTurno {
-  // Ignoramos la lógica de tiempo si ya fue CANCELADO o CONFIRMADO (si los usas manualmente)
-  if (turno.estado === EstadoTurno.CANCELADO || turno.estado === EstadoTurno.REALIZADO) {
+
+  // 🟢 NUEVA FUNCIÓN: Determina el estado dinámico basado en la hora actual
+  private getEstadoDinamico(turno: Turno): EstadoTurno {
+    // Ignoramos la lógica de tiempo si ya fue CANCELADO o CONFIRMADO (si los usas manualmente)
+    if (turno.estado === EstadoTurno.CANCELADO || turno.estado === EstadoTurno.REALIZADO) {
       return turno.estado;
+    }
+
+    const ahora = new Date();
+    const fechaInicio = new Date(turno.fecha_hora);
+
+    // Usamos el servicio cargado para obtener la duración
+    const fechaFin = this.calcularFechaFin(
+      turno.fecha_hora.toString(),
+      turno.servicio.duracion_minutos // Asumimos que el servicio ya está cargado
+    );
+
+    // 1. Está COMPLETADO: Si la hora actual es posterior a la hora de FIN del turno.
+    if (ahora > fechaFin) {
+      return EstadoTurno.REALIZADO;
+    }
+
+    // 2. Está EN PROCESO: Si la hora actual está entre la hora de INICIO y la hora de FIN.
+    if (ahora >= fechaInicio && ahora < fechaFin) {
+      return EstadoTurno.EN_PROCESO;
+    }
+
+    // 3. PENDIENTE: Si la hora actual es anterior a la hora de INICIO.
+    return EstadoTurno.PENDIENTE;
   }
 
-  const ahora = new Date();
-  const fechaInicio = new Date(turno.fecha_hora);
-  
-  // Usamos el servicio cargado para obtener la duración
-  const fechaFin = this.calcularFechaFin(
-    turno.fecha_hora.toString(), 
-    turno.servicio.duracion_minutos // Asumimos que el servicio ya está cargado
-  );
-
-  // 1. Está COMPLETADO: Si la hora actual es posterior a la hora de FIN del turno.
-  if (ahora > fechaFin) {
-    return EstadoTurno.REALIZADO;
-  }
-  
-  // 2. Está EN PROCESO: Si la hora actual está entre la hora de INICIO y la hora de FIN.
-  if (ahora >= fechaInicio && ahora < fechaFin) {
-    return EstadoTurno.EN_PROCESO;
-  }
-  
-  // 3. PENDIENTE: Si la hora actual es anterior a la hora de INICIO.
-  return EstadoTurno.PENDIENTE;
-}
 
 
+  // En src/turnos/turnos.service.ts, dentro de la clase TurnoService
 
   async create(dto: CreateTurnoDto) {
     const { barberoId, servicioId, clienteId, fecha_hora } = dto;
 
-    // 1. 🔍 BUSCAR Y VALIDAR CLIENTE
+    const fechaInicio = new Date(fecha_hora);
+    const ahora = new Date(); // Obtener la hora actual
+
+    // 🛑 NUEVA VALIDACIÓN CLAVE 🛑
+    if (fechaInicio < ahora) {
+      throw new BadRequestException({
+        mensaje: 'No se puede agendar un turno en el pasado. Seleccione una fecha y hora futuras.'
+      });
+    }
+
+    // 1. 🔍 BUSCAR Y VALIDAR CLIENTE, BARBERO Y SERVICIO
     const cliente = await this.clienteRepository.findOne({ where: { id_cliente: clienteId } });
     if (!cliente) throw new NotFoundException('Cliente no encontrado');
 
-    // 2. 🔍 BUSCAR Y VALIDAR BARBERO
     const barbero = await this.barberoRepository.findOne({ where: { id_barbero: barberoId } });
     if (!barbero) throw new NotFoundException('Barbero no encontrado');
 
-    // 3. 🔍 BUSCAR Y VALIDAR SERVICIO
     const servicio = await this.servicioRepository.findOne({ where: { id_servicio: servicioId } });
     if (!servicio) throw new NotFoundException('Servicio no encontrado');
 
-    const fechaInicio = new Date(fecha_hora);
+    // 2. CÁLCULO DE HORARIO
+    const fechaInicioTurno = new Date(fecha_hora);
     const fechaFin = this.calcularFechaFin(fecha_hora, servicio.duracion_minutos);
 
-    // Buscamos todos los turnos de ese barbero
-    const turnos = await this.turnoRepository.find({ where: { barbero } });
+    // 3. 🛡️ VALIDACIÓN DE CONFLICTO (Filtrando solo turnos activos)
 
-    // Validar si hay superposición
-    const conflicto = turnos.find((t) => {
+    // 🟢 ESTADOS QUE BLOQUEAN LA AGENDA
+    const estadosActivos: EstadoTurno[] = [
+      EstadoTurno.PENDIENTE,
+      EstadoTurno.EN_PROCESO,
+    ];
+
+    // Consulta para obtener SOLO los turnos que realmente bloquean
+    const turnosActivos = await this.turnoRepository.find({
+      where: {
+        barbero: { id_barbero: barberoId }, // Filtrar por ID del barbero
+        estado: In(estadosActivos) // 🟢 Usamos In(estadosActivos)
+      },
+      relations: ['servicio'] // Necesitamos la duración del servicio para el conflicto
+    });
+
+
+    // 4. BUSCAR CONFLICTO DENTRO DE LOS TURNOS ACTIVOS
+    const conflicto = turnosActivos.find((t) => {
+      // Asumimos que t.fecha_hora es un Date o string ISO
       const inicioExistente = new Date(t.fecha_hora);
       const finExistente = this.calcularFechaFin(
-        typeof t.fecha_hora === 'string' ? t.fecha_hora : t.fecha_hora.toISOString(),
-        servicio.duracion_minutos
+        inicioExistente.toISOString(),
+        t.servicio.duracion_minutos
       );
 
       return (
@@ -112,15 +140,12 @@ private getEstadoDinamico(turno: Turno): EstadoTurno {
         conflicto: {
           id_turno: conflicto.id_turno,
           inicio: conflicto.fecha_hora,
-          fin: this.calcularFechaFin(
-            typeof conflicto.fecha_hora === 'string' ? conflicto.fecha_hora : conflicto.fecha_hora.toISOString(),
-            servicio.duracion_minutos
-          ),
+          fin: this.calcularFechaFin(conflicto.fecha_hora.toISOString(), conflicto.servicio.duracion_minutos),
         },
       });
     }
 
-    // Si no hay conflicto, creamos el turno
+    // 5. CREAR Y GUARDAR EL TURNO
     const nuevoTurno = this.turnoRepository.create({
       ...dto,
       barbero,
@@ -132,40 +157,131 @@ private getEstadoDinamico(turno: Turno): EstadoTurno {
   }
 
 
- async findAll(): Promise<Turno[]> {
-  // 1. Obtener todos los turnos con sus relaciones (¡esto ya lo corregimos y funciona bien!)
-  const turnosDB = await this.turnoRepository.find({
-    relations: [
-      'cliente',
-      'barbero',
-      'servicio', // Necesitamos el servicio para obtener la duración
-    ],
-    order: { fecha_hora: 'ASC' },
-  });
+  async findAll(): Promise<Turno[]> {
+    // 1. Obtener todos los turnos con sus relaciones (¡esto ya lo corregimos y funciona bien!)
+    const turnosDB = await this.turnoRepository.find({
+      relations: [
+        'cliente',
+        'barbero',
+        'servicio', // Necesitamos el servicio para obtener la duración
+      ],
+      order: { fecha_hora: 'ASC' },
+    });
 
-  // 2. Mapear los turnos para aplicar el estado dinámico
-  const turnosConEstadoDinamico = turnosDB.map(turno => {
-    // ⚠️ Importante: Creamos una copia del objeto para no modificar la entidad original de TypeORM
-    // Esto es solo para la respuesta HTTP.
-    const turnoCopia = { ...turno }; 
-    
-    // Si la entidad Servicio está cargada, calculamos el nuevo estado
-    if (turno.servicio) {
+    // 2. Mapear los turnos para aplicar el estado dinámico
+    const turnosConEstadoDinamico = turnosDB.map(turno => {
+      // ⚠️ Importante: Creamos una copia del objeto para no modificar la entidad original de TypeORM
+      // Esto es solo para la respuesta HTTP.
+      const turnoCopia = { ...turno };
+
+      // Si la entidad Servicio está cargada, calculamos el nuevo estado
+      if (turno.servicio) {
         // 🟢 Asignamos el estado calculado dinámicamente
         // Esto sobrescribe el estado almacenado en la DB, pero solo en la respuesta HTTP
-        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno); 
-    }
-    
-    return turnoCopia;
-  });
+        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno);
+      }
 
-  return turnosConEstadoDinamico as Turno[];
+      return turnoCopia;
+    });
+
+    return turnosConEstadoDinamico as Turno[];
   }
 
   async findOne(id: number): Promise<Turno> {
     const turno = await this.turnoRepository.findOneBy({ id_turno: id });
     if (!turno) throw new NotFoundException(`Turno con id ${id} no encontrado`);
     return turno;
+  }
+
+  // 🟢 NUEVO: Actualizar solo el estado (usado para CANCELAR)
+  async updateEstado(id: number, nuevoEstado: EstadoTurno): Promise<Turno> {
+    const turno = await this.turnoRepository.findOneBy({ id_turno: id });
+    if (!turno) {
+      throw new NotFoundException(`Turno con id ${id} no encontrado`);
+    }
+    turno.estado = nuevoEstado;
+
+    await this.turnoRepository.save(turno);
+
+    // Devolver el turno con todas las relaciones cargadas
+    const turnoConRelaciones = await this.turnoRepository.findOne({
+      where: { id_turno: id },
+      relations: ['cliente', 'barbero', 'servicio'],
+    });
+    
+    if (!turnoConRelaciones) {
+      throw new NotFoundException(`Turno con id ${id} no encontrado`);
+    }
+    
+    return turnoConRelaciones;
+  }
+
+  // 🟢 NUEVO: Reprogramar turno (con validación de conflicto)
+  async reprogramar(id: number, nuevaFechaHora: string): Promise<Turno> {
+    const turno = await this.turnoRepository.findOne({
+      where: { id_turno: id },
+      relations: ['servicio', 'barbero']
+    });
+    if (!turno) {
+      throw new NotFoundException(`Turno con id ${id} no encontrado`);
+    }
+
+    const nuevaFechaInicio = new Date(nuevaFechaHora);
+
+    // 1. VALIDAR FECHA FUTURA
+    if (nuevaFechaInicio < new Date()) {
+      throw new BadRequestException({
+        mensaje: 'No se puede reprogramar a una fecha u hora pasada.',
+      });
+    }
+
+    // 2. VALIDACIÓN DE CONFLICTO
+    const nuevaFechaFin = this.calcularFechaFin(nuevaFechaHora, turno.servicio.duracion_minutos);
+    const estadosActivos: EstadoTurno[] = [EstadoTurno.PENDIENTE, EstadoTurno.EN_PROCESO];
+
+    const turnosActivos = await this.turnoRepository.find({
+      where: {
+        barbero: { id_barbero: turno.barbero.id_barbero },
+        estado: In(estadosActivos)
+      },
+      relations: ['servicio']
+    });
+
+    const conflicto = turnosActivos.find((t) => {
+      // Excluimos el turno que estamos reprogramando de la validación
+      if (t.id_turno === id) return false;
+
+      const inicioExistente = new Date(t.fecha_hora);
+      const finExistente = this.calcularFechaFin(inicioExistente.toISOString(), t.servicio.duracion_minutos);
+
+      return (
+        (nuevaFechaInicio >= inicioExistente && nuevaFechaInicio < finExistente) ||
+        (nuevaFechaFin > inicioExistente && nuevaFechaFin <= finExistente)
+      );
+    });
+
+    if (conflicto) {
+      throw new BadRequestException({
+        mensaje: 'El barbero ya tiene un turno asignado en ese nuevo horario.',
+      });
+    }
+
+    // 3. ASIGNAR NUEVOS VALORES Y GUARDAR
+    turno.fecha_hora = nuevaFechaInicio;
+    turno.estado = EstadoTurno.PENDIENTE;
+
+    await this.turnoRepository.save(turno);
+
+    const turnoConRelaciones = await this.turnoRepository.findOne({
+      where: { id_turno: id },
+      relations: ['cliente', 'barbero', 'servicio'],
+    });
+
+    if (!turnoConRelaciones) {
+      throw new NotFoundException(`Turno con id ${id} no encontrado`);
+    }
+
+    return turnoConRelaciones;
   }
 
   async update(id: number, dto: UpdateTurnoDto): Promise<Turno> {
@@ -281,5 +397,3 @@ private getEstadoDinamico(turno: Turno): EstadoTurno {
   }
 
 }
-
-
