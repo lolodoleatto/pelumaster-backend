@@ -94,7 +94,14 @@ export class TurnoService {
 
 
   async findAll(): Promise<Turno[]> {
-    return this.turnoRepository.find();
+    return this.turnoRepository.find({
+      relations: [
+        'cliente',  // ¡Necesario para el frontend!
+        'barbero',  // ¡Necesario para el frontend!
+        'servicio', // ¡Necesario para el frontend!
+      ],
+      order: { fecha_hora: 'ASC' }, // Opcional: ordenar para mejor UX
+    });
   }
 
   async findOne(id: number): Promise<Turno> {
