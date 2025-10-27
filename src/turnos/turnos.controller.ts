@@ -2,7 +2,8 @@ import { Controller, Get, Post, Patch, Delete, Param, Body, Query, BadRequestExc
 import { TurnoService } from './turnos.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
 import { UpdateTurnoDto } from './dto/update-turno.dto';
-import { EstadoTurno } from './turno.entity';
+import { EstadoTurno, Turno } from './turno.entity';
+import { TurnoFiltersDto } from './dto/turno-filters.dto';
 
 @Controller('turnos')
 export class TurnoController {
@@ -14,8 +15,10 @@ export class TurnoController {
   }
 
   @Get()
-  findAll() {
-    return this.turnoService.findAll();
+  // 🛑 CAMBIO CLAVE: Usar @Query() para obtener todos los parámetros
+  async findAll(@Query() filters: TurnoFiltersDto): Promise<Turno[]> { 
+    // Ahora pasamos los filtros al servicio
+    return this.turnoService.findAll(filters); 
   }
 
   @Get(':id')

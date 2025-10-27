@@ -9,6 +9,7 @@ import { UpdateTurnoDto } from './dto/update-turno.dto';
 import { Cliente } from '../clientes/cliente.entity';
 import { Barbero } from '../barberos/barbero.entity';
 import { Servicio } from '../servicios/servicio.entity';
+import { TurnoFiltersDto } from './dto/turno-filters.dto';
 
 @Injectable()
 export class TurnoService {
@@ -157,8 +158,48 @@ export class TurnoService {
   }
 
 
-  async findAll(): Promise<Turno[]> {
-    return this.turnoRepository.find();
+  async findAll(filters: TurnoFiltersDto = {}): Promise<Turno[]> {
+    const { barberoId, clienteId, servicioId, estado, fecha } = filters;
+
+    // 1. Construir la condición 'WHERE' de forma dinámica
+    const where: any = {};
+
+    if (barberoId) {
+      // Si TypeORM está configurado con relaciones, se usa el objeto anidado
+      where.barbero = { id_barbero: barberoId };
+    }
+
+    if (clienteId) {
+      where.cliente = { id_cliente: clienteId };
+    }
+
+    if (servicioId) {
+      where.servicio = { id_servicio: servicioId };
+    }
+
+    if (estado) {
+      where.estado = estado;
+    }
+
+    if (fecha) {
+      // Si usas el filtro por fecha, debes usar la lógica Between de tu servicio
+      const fechaInicio = moment(fecha).startOf('day').toDate();
+      const fechaFin = moment(fecha).endOf('day').toDate();
+
+      // Sobreescribir la condición 'where' con la lógica Between
+      where.fecha_hora = Between(fechaInicio, fechaFin);
+    }
+
+    // 2. Ejecutar la consulta
+    return this.turnoRepository.find({
+      where: where, // Aplica las condiciones dinámicas
+      relations: [
+        'cliente',
+        'barbero',
+        'servicio',
+      ],
+      order: { fecha_hora: 'ASC' },
+    });
   }
 
   async findOne(id: number): Promise<Turno> {
@@ -182,11 +223,11 @@ export class TurnoService {
       where: { id_turno: id },
       relations: ['cliente', 'barbero', 'servicio'],
     });
-    
+
     if (!turnoConRelaciones) {
       throw new NotFoundException(`Turno con id ${id} no encontrado`);
     }
-    
+
     return turnoConRelaciones;
   }
 
