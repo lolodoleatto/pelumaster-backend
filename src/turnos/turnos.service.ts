@@ -191,15 +191,25 @@ export class TurnoService {
     }
 
     // 2. Ejecutar la consulta
-    return this.turnoRepository.find({
-      where: where, // Aplica las condiciones dinámicas
+    const turnosDB = await this.turnoRepository.find({ // 🛑 CAPTURAR EL RESULTADO DE LA CONSULTA 🛑
+      where: where,
       relations: [
         'cliente',
         'barbero',
-        'servicio',
+        'servicio', // ¡Crucial para getEstadoDinamico!
       ],
       order: { fecha_hora: 'ASC' },
     });
+
+    // 🛑 APLICAR LÓGICA DE ESTADO DINÁMICO AQUÍ 🛑
+    return turnosDB.map(turno => {
+      const turnoCopia = { ...turno };
+      if (turno.servicio) {
+        // Sobreescribir el estado con el valor calculado
+        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno); 
+      }
+      return turnoCopia;
+    }) as Turno[]; // Devolver la lista con los estados dinámicos
   }
 
   async findOne(id: number): Promise<Turno> {
