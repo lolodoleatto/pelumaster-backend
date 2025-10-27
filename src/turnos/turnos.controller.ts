@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Param, Body, Query } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Param, Body, Query, BadRequestException } from '@nestjs/common';
 import { TurnoService } from './turnos.service';
 import { CreateTurnoDto } from './dto/create-turno.dto';
 import { UpdateTurnoDto } from './dto/update-turno.dto';
@@ -61,7 +61,23 @@ export class TurnoController {
     return this.turnoService.remove(+id);
   }
 
-  
+  // 🟢 Verificar la URL de Cancelar
+  @Patch(':id/cancelar') // <--- VERIFICA EL PATTERN DE RUTA
+  cancelarTurno(@Param('id') id: string) {
+    return this.turnoService.updateEstado(+id, EstadoTurno.CANCELADO);
+  }
+
+  // 🟢 Verificar la URL de Reprogramar
+  @Patch(':id/reprogramar')
+  reprogramarTurno(@Param('id') id: string, @Body() dto: UpdateTurnoDto) {
+    // 🟢 CORRECCIÓN: Validar que fecha_hora exista
+    if (!dto.fecha_hora) {
+      throw new BadRequestException('El campo fecha_hora es requerido para la reprogramación.');
+    }
+    // El '!' le dice a TypeScript que, si llegamos aquí, ya sabemos que NO es undefined.
+    return this.turnoService.reprogramar(+id, dto.fecha_hora);
+  }
+
 }
 
 
