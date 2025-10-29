@@ -24,6 +24,7 @@ export class TurnoService {
     private readonly servicioRepository: Repository<Servicio>,
   ) { }
 
+
   // 🔹 Función auxiliar para calcular la fecha de fin del turno
   private calcularFechaFin(fecha_hora: string, duracion_minutos: number | string): Date {
     const duracion = Number(duracion_minutos);
@@ -71,9 +72,6 @@ export class TurnoService {
     return EstadoTurno.PENDIENTE;
   }
 
-
-
-  // En src/turnos/turnos.service.ts, dentro de la clase TurnoService
 
   async create(dto: CreateTurnoDto) {
     const { barberoId, servicioId, clienteId, fecha_hora } = dto;
@@ -159,59 +157,70 @@ export class TurnoService {
 
 
   async findAll(filters: TurnoFiltersDto = {}): Promise<Turno[]> {
-    const { barberoId, clienteId, servicioId, estado, fecha } = filters;
+    // 1. Desestructurar y preparar filtros (convertir a número donde sea necesario)
+    const barberoId = filters.barberoId ? parseInt(filters.barberoId, 10) : undefined;
+    const clienteId = filters.clienteId ? parseInt(filters.clienteId, 10) : undefined;
+    const servicioId = filters.servicioId ? parseInt(filters.servicioId, 10) : undefined;
 
-    // 1. Construir la condición 'WHERE' de forma dinámica
+    // El estado y la fecha se manejan como strings
+    const { estado, fecha } = filters;
+
+    // 2. Construir la condición WHERE (SOLO para filtros estáticos de DB)
     const where: any = {};
 
     if (barberoId) {
-      // Si TypeORM está configurado con relaciones, se usa el objeto anidado
       where.barbero = { id_barbero: barberoId };
     }
-
     if (clienteId) {
       where.cliente = { id_cliente: clienteId };
     }
-
     if (servicioId) {
       where.servicio = { id_servicio: servicioId };
     }
 
-    if (estado) {
-      where.estado = estado;
-    }
-
+    // 🛑 Filtro por FECHA (Between) 🛑
     if (fecha) {
-      // Si usas el filtro por fecha, debes usar la lógica Between de tu servicio
       const fechaInicio = moment(fecha).startOf('day').toDate();
       const fechaFin = moment(fecha).endOf('day').toDate();
-
-      // Sobreescribir la condición 'where' con la lógica Between
       where.fecha_hora = Between(fechaInicio, fechaFin);
     }
 
-    // 2. Ejecutar la consulta
-    const turnosDB = await this.turnoRepository.find({ // 🛑 CAPTURAR EL RESULTADO DE LA CONSULTA 🛑
+    // IMPORTANTE: NO usamos 'where.estado = estado' aquí, ya que el estado es dinámico.
+
+    // 3. Ejecutar la consulta base (con filtros estáticos como ID y FECHA)
+    const turnosDB = await this.turnoRepository.find({
       where: where,
       relations: [
         'cliente',
         'barbero',
-        'servicio', // ¡Crucial para getEstadoDinamico!
+        'servicio',
       ],
       order: { fecha_hora: 'ASC' },
     });
 
-    // 🛑 APLICAR LÓGICA DE ESTADO DINÁMICO AQUÍ 🛑
-    return turnosDB.map(turno => {
+    // 4. Aplicar LÓGICA DINÁMICA DE ESTADO (Mapeo)
+    const turnosConEstadoDinamico = turnosDB.map(turno => {
       const turnoCopia = { ...turno };
+
+      // 🛑 Sobreescribir el estado con el valor calculado en tiempo de ejecución 🛑
+      // Esto permite que 'pendiente' se convierta en 'realizado' si ya pasó la hora.
       if (turno.servicio) {
-        // Sobreescribir el estado con el valor calculado
-        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno); 
+        turnoCopia.estado = this.getEstadoDinamico(turnoCopia as Turno);
       }
       return turnoCopia;
-    }) as Turno[]; // Devolver la lista con los estados dinámicos
+    }) as Turno[];
+
+    // 5. Aplicar FILTRO DE ESTADO EN MEMORIA (Si se solicitó)
+    if (estado) {
+      // 🛑 Filtramos la lista de turnos DESPUÉS de calcular su estado real 🛑
+      return turnosConEstadoDinamico.filter(turno => turno.estado === estado);
+    }
+
+    // Si no hay filtro de estado, devolvemos toda la lista dinámica
+    return turnosConEstadoDinamico;
   }
 
+  
   async findOne(id: number): Promise<Turno> {
     const turno = await this.turnoRepository.findOneBy({ id_turno: id });
     if (!turno) throw new NotFoundException(`Turno con id ${id} no encontrado`);
