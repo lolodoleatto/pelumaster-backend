@@ -15,7 +15,7 @@ export class ReportesController {
         return this.reportesService.reportePorBarbero(id_barbero, desde, hasta);
     }
 
-    // 🔹 Reporte semanal
+    // Reporte semanal
     @Get('barbero/:id/semana')
     getReporteSemana(
         @Param('id') id_barbero: number,
@@ -24,7 +24,7 @@ export class ReportesController {
         return this.reportesService.reporteSemana(id_barbero, fecha);
     }
 
-    // 🔹 Reporte mensual
+    // Reporte mensual
     @Get('barbero/:id/mes')
     getReporteMes(
         @Param('id') id_barbero: number,
@@ -33,7 +33,7 @@ export class ReportesController {
         return this.reportesService.reporteMes(id_barbero, fecha);
     }
 
-    // 🔹 Reporte anual
+    // Reporte anual
     @Get('barbero/:id/anio')
     getReporteAnio(
         @Param('id') id_barbero: number,
