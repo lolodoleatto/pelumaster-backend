@@ -9,12 +9,12 @@ import { ReportesModule } from './reportes/reportes.module';
 
 @Module({
   imports: [
-    // 1. Módulo de Configuración: Carga el .env y lo hace globalmente disponible
+    // Módulo de Configuración: Carga el .env y lo hace globalmente disponible
     ConfigModule.forRoot({
       isGlobal: true,
     }),
 
-    // 2. Configuración Asíncrona de TypeORM (Recomendado)
+    // Configuración Asíncrona de TypeORM
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule], // Aseguramos que ConfigModule se cargue primero
       inject: [ConfigService], // Solicitamos el servicio de configuración
@@ -25,7 +25,7 @@ import { ReportesModule } from './reportes/reportes.module';
         port: config.get<number>('DB_PORT'), // Ya maneja la conversión a número
         username: config.get<string>('DB_USERNAME'),
         password: config.get<string>('DB_PASSWORD'),
-        database: config.get<string>('DB_DATABASE'), // Valor por defecto para la base de datos
+        database: config.get<string>('DB_DATABASE'),
 
         autoLoadEntities: true,
         synchronize: true, 
