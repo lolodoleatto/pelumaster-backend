@@ -12,6 +12,10 @@ El backend de PeluMaster proporciona los servicios necesarios para:
 
 Construido con una arquitectura modular y escalable, priorizando el rendimiento y la mantenibilidad del código.
 
+## 🎓 Contexto Académico
+
+Este proyecto fue desarrollado como trabajo final para la materia **Programación IV** de la carrera **Tecnicatura Universitaria en Programación (TUP)** en la **UTN** (Universidad Tecnológica Nacional).
+
 ## 🛠️ Tecnologías
 
 * **Framework:** NestJS
